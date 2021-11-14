@@ -19,7 +19,7 @@ parser.add_argument("--hmmer_output", help="Text output from HMMER3 while annota
 args = parser.parse_args()
 
 
-training_texts = load_data_files(args.fasta_file, args.hmmer_output):
+training_texts = load_data_files(args.fasta_file, args.hmmer_output)
 
 
 model = perceiver_pytorch.PerceiverLM(
