@@ -1,13 +1,25 @@
 import torch
 import perceiver_pytorch
+import argparse
 from helpers import *
 from prepare_data import *
 
-path_to_FASTA_file = 'FASTA_sample_data/small_uniprot_sprot.fasta.txt'
-path_to_hmmer_text_file = 'FASTA_sample_data/small_seq_set_Pfams.txt'
+
+#path_to_FASTA_file = '/Users/quintinpope/Documents/hmmer_tutorial/uniprot_sprot.fasta'
+#path_to_hmmer_text_file = '/Users/quintinpope/Documents/hmmer_tutorial/hmmscan_Pfam-A_uniprot_sprot.txt'
 
 
-training_texts = load_data_files(path_to_FASTA_file, path_to_hmmer_text_file):
+parser = argparse.ArgumentParser(description='Trains a perceiver on FASTA data.')
+
+
+parser.add_argument("--fasta_file", help="Path to the FASTA file containing training data.")
+parser.add_argument("--hmmer_output", help="Text output from HMMER3 while annotating protein domains in the FASTA data file.")
+
+
+args = parser.parse_args()
+
+
+training_texts = load_data_files(args.fasta_file, args.hmmer_output):
 
 
 model = perceiver_pytorch.PerceiverLM(
