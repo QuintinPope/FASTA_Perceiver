@@ -10,18 +10,15 @@ path_to_hmmer_text_file = '/content/drive/MyDrive/Microbiome Deep Learning/FASTA
 
 
 def load_data_files(path_to_FASTA_file, path_to_hmmer_text_file):
-    full_properties = ["bias",
-                       "bitscore",
-                       "description",
-                       "dbxrefs",
-                       "domain_exp_num",
-                       "domain_obs_num",
-                       "evalue",
-                       "fragments",
-                       "hsps",
-                       "id",
-                       "query_description",
-                       "query_id"]
+    reduced_properties = ["bias",
+                          "bitscore",
+                          "description",
+                          "domain_exp_num",
+                          "domain_obs_num",
+                          "evalue",
+                          "id",
+                          "query_description",
+                          "query_id"]
 
     with open(path_to_FASTA_file) as fasta_file:
         sequence_dict = defaultdict(list)
