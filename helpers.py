@@ -11,14 +11,15 @@ def ASCII_tokenize(strings, mask_prob = 0, mask_index = 1, nucleotides = True, n
         char_ids.append([])
         looking_at_text = False
         for c in s:
+            c = str.upper(c)
             if not looking_at_text:
-                if nucleotides:
-                    char_id = nucleotide_vocab.lookup(c)
-                else:
-                    char_id = amino_acid_vocab.lookup(c)
                 if c == '|':
                     looking_at_text = True
                     break
+                if nucleotides:
+                    char_id = nucleotide_vocab[c]
+                else:
+                    char_id = amino_acid_vocab[c]
             else:
                 char_id = ord(c) if ord(c) < 256 else 2
             if random.random() < mask_prob:
@@ -27,7 +28,7 @@ def ASCII_tokenize(strings, mask_prob = 0, mask_index = 1, nucleotides = True, n
                 
     #charvalues = [[(mask_index if random.random() < mask_prob else ord(c)) for c in s if ord(c) < 256] for s in strings]
     max_len = max([len(chars) for chars in char_ids])
-    for chars in charvalues:
+    for chars in char_ids:
         while len(chars) < max_len:
             chars.append(0)
-    return torch.tensor(charvalues)
+    return torch.tensor(char_ids)
