@@ -3,13 +3,55 @@ import numpy as np
 from Bio import SeqIO, SearchIO
 from collections import defaultdict
 import torch
-
+import os
 
 path_to_FASTA_file = '/content/drive/MyDrive/Microbiome Deep Learning/FASTA_sample_data/small_uniprot_sprot.fasta.txt'
 path_to_hmmer_text_file = '/content/drive/MyDrive/Microbiome Deep Learning/FASTA_sample_data/small_seq_set_Pfams.txt'
 
+def load_SRA_files(path_to_dir):
+    training_texts = []
+    files = os.listdir(path_to_dir)
+    metadata_dict = {}
+    metadata_file = open(path_to_dir + "SraRunTable.txt", 'r')
+    metadata_lines = metadata_file.read().split("\nSRR")
+    for line in metadata_lines:
+        line.replace("\n", "")
+        try:
+            exp_id = int(line[:8])
+        except:
+            print(line[:8])
+            continue
+        metadata_text = line[8:]
+        metadata_dict[exp_id] = metadata_text[1:]
+    metadata_file.close()
+    for file_name in files:
+        #print(file_name)
+        f = open(path_to_dir + file_name, 'r')
+        if '.fasta' in file_name:
+            
+            exp_id = -1
+            for line in f.read().split('\n'):
+                if len(line) < 1:
+                    continue
+                if line[0] == '>':
+                    for end in range(3, 12, -1):
+                        try:
+                            exp_id = int(line[4:end])
+                            break
+                        except:
+                            pass
+                else:
+                    if exp_id in metadata_dict:
+                        metadata = metadata_dict[exp_id]
+                    else:
+                        metadata = ''
+                    training_texts.append(line + "|" + metadata)
+        f.close()
+    rng = np.random.default_rng()
+    training_texts = rng.permutation(training_texts).tolist()
+    return training_texts
 
-def load_data_files(path_to_FASTA_file, path_to_hmmer_text_file):
+def load_AA_files(path_to_FASTA_file, path_to_hmmer_text_file):
     reduced_properties = ["bias",
                           "bitscore",
                           "description",
