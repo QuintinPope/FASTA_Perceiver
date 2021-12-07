@@ -19,7 +19,7 @@ def load_SRA_files(path_to_dir):
         try:
             exp_id = int(line[:8])
         except:
-            print(line[:8])
+            #print(line[:8])
             continue
         metadata_text = line[8:]
         metadata_dict[exp_id] = metadata_text[1:]

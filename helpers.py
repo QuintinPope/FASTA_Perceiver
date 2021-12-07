@@ -3,7 +3,7 @@ import random
 
 
 
-def ASCII_tokenize(strings, mask_prob = 0, mask_index = 1, nucleotides = True, nucleotide_vocab = None, amino_acid_vocab = None):
+def ASCII_tokenize(strings, mask_prob = 0, mask_index = 1, nucleotides = True, nucleotide_vocab = None, amino_acid_vocab = None, split_token_types = False):
     if type(strings) == str:
         strings = [strings]
     char_ids = []
