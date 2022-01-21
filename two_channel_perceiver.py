@@ -2,17 +2,20 @@
 
 from math import pi, log
 from functools import wraps
+from helpers import *
 
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 import perceiver_pytorch
 from perceiver_pytorch.perceiver_io import *#PreNorm, Attention, FeedForward
+from performer_pytorch.performer_pytorch import FixedPositionalEmbedding
 from einops import rearrange, repeat
 
+
 import sys
-sys.path.append('/nfs/stak/users/popeq/Research/Microbiome/vilbert-multi-task/vilbert')
-import vilbert
+#sys.path.append('/nfs/stak/users/popeq/Research/Microbiome/vilbert-multi-task/vilbert')
+#import vilbert
 
 class CrossModalAttention(nn.Module):
     def __init__(
@@ -23,7 +26,7 @@ class CrossModalAttention(nn.Module):
     ):
         super().__init__()
         self.value = nn.Parameter(torch.randn(num_latents, emb_dim))
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads)
+        self.attention = nn.MultiheadAttention(emb_dim, num_heads)
 
     def forward(
         self,
@@ -31,9 +34,9 @@ class CrossModalAttention(nn.Module):
         query
     ):
         batch_size = key.shape[0]
-        sa_value = self.value.unsqueeze(1).repeat(1, batch_size, 1)
+        sa_value = self.value.unsqueeze(0).repeat(batch_size, 1, 1)
 
-        attn_output, attn_output_weights = multihead_attn(query, key, sa_value)
+        attn_output, attn_output_weights = self.attention(query, key, sa_value)
         return attn_output
 
 class PerceiverIOTwoChannel(nn.Module):
@@ -57,7 +60,7 @@ class PerceiverIOTwoChannel(nn.Module):
         #self.vlibert_cfg = vilbert.BertConfig(logits_dim, hidden_size=latent_dim, bi_hidden_size=latent_dim, hidden_dropout_prob=0, attention_probs_dropout_prob=0,
         #                                      v_attention_probs_dropout_prob=0, v_hidden_dropout_prob=0, bi_num_attention_heads=8, v_hidden_size=latent_dim)
         #self.cross_modal_attention = vilbert.BertBiAttention(self.vlibert_cfg)
-
+        self.latent_dim = latent_dim
         self.latents_1 = nn.Parameter(torch.randn(num_latents, latent_dim))
         self.cross_attend_blocks_1 = nn.ModuleList([
             PreNorm(latent_dim, Attention(latent_dim, dim, heads = cross_heads, dim_head = cross_dim_head), context_dim = dim),
@@ -78,6 +81,10 @@ class PerceiverIOTwoChannel(nn.Module):
         get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim))
         get_latent_attn, get_latent_ff = map(cache_fn, (get_latent_attn, get_latent_ff))
 
+        get_cross_attn = lambda: PreNorm(2 * latent_dim, Attention(2 * latent_dim, heads = 2 * latent_heads, dim_head = latent_dim_head))
+        get_cross_ff = lambda: PreNorm(2 * latent_dim, FeedForward(2 * latent_dim))
+        get_cross_attn, get_cross_ff = map(cache_fn, (get_cross_attn, get_cross_ff))
+
         self.layers = nn.ModuleList([])
         cache_args = {'_cache': weight_tie_layers}
         for i in range(depth):
@@ -86,10 +93,13 @@ class PerceiverIOTwoChannel(nn.Module):
                 get_latent_ff(**cache_args),
                 get_latent_attn(**cache_args),
                 get_latent_ff(**cache_args),
+                get_cross_attn(**cache_args),
+                get_cross_ff(**cache_args),
+                #CrossModalAttention(emb_dim=latent_dim, num_heads=16, num_latents=num_latents)
             ]))
 
-
-
+        self.decoder_cross_attn = PreNorm(queries_dim, Attention(queries_dim, latent_dim, heads = cross_heads, dim_head = cross_dim_head), context_dim = latent_dim)
+        self.decoder_ff = PreNorm(queries_dim, FeedForward(queries_dim)) if decoder_ff else None
 
         self.to_logits = nn.Linear(queries_dim, logits_dim) if exists(logits_dim) else nn.Identity()
 
@@ -122,23 +132,28 @@ class PerceiverIOTwoChannel(nn.Module):
     ):
         x_1, b = self.common_forward(self.latents_1, self.cross_attend_blocks_1, data_1, ca_mask_1)
         x_2, _ = self.common_forward(self.latents_2, self.cross_attend_blocks_2, data_2, ca_mask_2)
-        print(data_1.size(), data_2.size(), b)
+        #print(data_1.size(), data_2.size(), b)
         if not exists(ca_mask_1):
             ca_mask_1 = torch.ones_like(x_1[:,:,0])
         if not exists(ca_mask_2):
             ca_mask_2 = torch.ones_like(x_2[:,:,0])
         # layers
 
-        for self_attn_1, self_ff_1, self_attn_2, self_ff_2 in self.layers:
+        for self_attn_1, self_ff_1, self_attn_2, self_ff_2, cross_attn, cross_ff in self.layers:
             x_1 = self_attn_1(x_1) + x_1
             x_1 = self_ff_1(x_1) + x_1
             
             x_2 = self_attn_2(x_2) + x_2
             x_2 = self_ff_2(x_2) + x_2
 
-            print(x_1.size(), x_2.size(), ca_mask_1.size(), ca_mask_2.size())
+            #print(x_1.size(), x_2.size(), ca_mask_1.size(), ca_mask_2.size())
+            both_modalities = torch.cat((x_1, x_2), dim=2)
+            cross_attention_output = cross_attn(both_modalities)
+            mixed_modalities = cross_ff(cross_attention_output)
+            x_1 = mixed_modalities[:, :, :self.latent_dim]
+            x_2 = mixed_modalities[:, :, self.latent_dim:]
 
-            x_2, x_1, _ = self.cross_modal_attention(x_1, ca_mask_1, x_2, ca_mask_2)
+            
         x = torch.cat((x_1, x_2), dim=1)
 
         if not exists(queries):
@@ -171,11 +186,17 @@ class PerceiverLMTwoChannel(nn.Module):
         dim,
         num_tokens,
         max_seq_len,
+        pos_emb='abs',
         **kwargs
     ):
         super().__init__()
+        self.pos_emb_type = pos_emb
         self.token_emb = nn.Embedding(num_tokens, dim)
-        self.pos_emb = nn.Embedding(max_seq_len, dim)
+
+        if pos_emb == 'fixed':
+            self.pos_emb = FixedPositionalEmbedding(dim, max_seq_len)
+        elif pos_emb == 'abs':
+            self.pos_emb = nn.Embedding(max_seq_len, dim)
 
         self.perceiver_io = PerceiverIOTwoChannel(
             dim = dim,
@@ -197,14 +218,19 @@ class PerceiverLMTwoChannel(nn.Module):
         x_1 = self.token_emb(x_1)
         x_2 = self.token_emb(x_2)
 
-        pos_emb_1 = self.pos_emb(torch.arange(n_1, device = device))
-        pos_emb_1 = rearrange(pos_emb_1, 'n d -> () n d')
+
+        if self.pos_emb_type == 'abs':
+            pos_emb_1 = self.pos_emb(torch.arange(n_1, device = device))
+            pos_emb_1 = rearrange(pos_emb_1, 'n d -> () n d')
+
+            pos_emb_2 = self.pos_emb(torch.arange(n_2, device = device))
+            pos_emb_2 = rearrange(pos_emb_2, 'n d -> () n d')
+        elif self.pos_emb_type == 'fixed':
+            pos_emb_1 = self.pos_emb(x_1)
+            pos_emb_2 = self.pos_emb(x_2)
+
         x_1 = x_1 + pos_emb_1
-
-        pos_emb_2 = self.pos_emb(torch.arange(n_2, device = device))
-        pos_emb_2 = rearrange(pos_emb_2, 'n d -> () n d')
         x_2 = x_2 + pos_emb_2
-
 
         queries = torch.cat((x_1, x_2), dim=1)
         logits = self.perceiver_io(x_1, x_2, mask = mask, ca_mask_1 = ca_mask_1, ca_mask_2 = ca_mask_2, queries = queries)

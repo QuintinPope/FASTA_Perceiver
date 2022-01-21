@@ -8,6 +8,14 @@ import os
 path_to_FASTA_file = '/content/drive/MyDrive/Microbiome Deep Learning/FASTA_sample_data/small_uniprot_sprot.fasta.txt'
 path_to_hmmer_text_file = '/content/drive/MyDrive/Microbiome Deep Learning/FASTA_sample_data/small_seq_set_Pfams.txt'
 
+def load_downstream(path_to_file, task="loc", test_size=0.1, val_size=0.0):
+    data = pd.read_csv(path_to_file).sample(frac=1, random_state=42)
+    n_datapoints = len(data)
+    test_data = data[:int(n_datapoints * test_size)]
+    val_data = data[int(n_datapoints * test_size):int(n_datapoints * (test_size + val_size))]
+    train_data = data[int(n_datapoints * (test_size + val_size)):]
+    return train_data, test_data, val_data
+
 def load_SRA_files(path_to_dir):
     training_texts = []
     files = os.listdir(path_to_dir)
@@ -71,15 +79,16 @@ def load_AA_files(path_to_FASTA_file, path_to_hmmer_text_file):
 
     sequence_df = pd.DataFrame.from_dict(sequence_dict)
 
-    hits_dict = defaultdict(list)
-    with open(path_to_hmmer_text_file) as handle:
-        for queryresult in SearchIO.parse(handle, 'hmmer3-text'):
-            for hit in queryresult.hits:
-                for attrib in reduced_properties:
-                    hits_dict[attrib].append(getattr(hit, attrib))
+    if path_to_hmmer_text_file != 'none':
+        hits_dict = defaultdict(list)
+        with open(path_to_hmmer_text_file) as handle:
+            for queryresult in SearchIO.parse(handle, 'hmmer3-text'):
+                for hit in queryresult.hits:
+                    for attrib in reduced_properties:
+                        hits_dict[attrib].append(getattr(hit, attrib))
 
-    hits_df = pd.DataFrame.from_dict(hits_dict)
-    joined_df = hits_df.set_index('query_id').join(other=sequence_df.set_index('query_id'), on='query_id' )
+        hits_df = pd.DataFrame.from_dict(hits_dict)
+    #joined_df = hits_df.set_index('query_id').join(other=sequence_df.set_index('query_id'), on='query_id' )
 
     training_texts = []
 
@@ -87,7 +96,10 @@ def load_AA_files(path_to_FASTA_file, path_to_hmmer_text_file):
         seq = sequence_df.iloc[i]['seqs']
         desc = sequence_df.iloc[i]['desc']
         query_id = sequence_df.iloc[i]['query_id']
-        seq_hits = hits_df[hits_df['query_id'] == query_id]
-        hits_str = "||".join([str(hit[1]) + '|' + str(hit[5]) + '|' + hit[2] + '|' + hit[6] for hit in seq_hits.values])
-        training_texts.append(seq + "|" + desc + "||" + hits_str)
+        if path_to_hmmer_text_file != 'none':
+            seq_hits = hits_df[hits_df['query_id'] == query_id]
+            hits_str = "||".join([str(hit[1]) + '|' + str(hit[5]) + '|' + hit[2] + '|' + hit[6] for hit in seq_hits.values])
+            training_texts.append(seq + "|" + desc + "||" + hits_str)
+        else:
+            training_texts.append(seq)
     return training_texts
